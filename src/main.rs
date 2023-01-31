@@ -1,5 +1,6 @@
 mod templates;
 mod utils;
+mod cli;
 
 use tokio::fs;
 
@@ -14,16 +15,27 @@ use warp::path::FullPath;
 use tera::Context;
 use pretty_env_logger;
 
+use clap::Parser;
+
 use templates::Templates;
-use utils::{with_clone, decode_url};
+use utils::{with_clone, decode_url, ArcPath};
+use cli::Args;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
+    let config = Args::parse();
+
     env::set_var("RUST_LOG", "info");
     pretty_env_logger::init();
 
-    let root_dir = Arc::new(dirs::home_dir().unwrap());
-    // let root_dir = Arc::new(PathBuf::from("/home/parthpant/dev"));
+    let root_dir = match config.dir.as_str() {
+        "~" => dirs::home_dir().unwrap(),
+        p => PathBuf::from(p)
+    };
+
+    log::info!("serving directory: {}", root_dir.to_str().unwrap());
+
+    let root_dir = ArcPath::from(root_dir);
     let tera = Arc::new(Templates::new("templates/**/*.html"));
 
     let not_found = warp::get()
@@ -41,10 +53,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .and(warp::path::full())
         .and(with_clone(&tera))
         .and(with_clone(&root_dir))
-        .and_then(|reqpath: FullPath, tera: Arc<Templates>, home_dir: Arc<PathBuf>| async move {
+        .and_then(|reqpath: FullPath, tera: Arc<Templates>, home_dir: ArcPath| async move {
             let reqpath = decode_url(reqpath.as_str().strip_prefix('/').unwrap());
             let reqpath = std::path::Path::new(&reqpath);
-            let path = home_dir.join(&reqpath);
+            let path = home_dir.0.join(&reqpath);
             let mut parent = std::path::Path::new(reqpath).to_owned();
             parent.pop();
 
@@ -68,17 +80,22 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                         }
                     }
 
+                    let foldername = match path.file_name() {
+                        Some(f) => f.to_str().unwrap(),
+                        None => "/"
+                    };
+
                     let mut context = Context::new();
                     context.insert("files", &files);
                     context.insert("dirs", &dirs);
                     context.insert("parent", &parent.to_str().unwrap());
                     context.insert("isroot", &(reqpath.to_str().unwrap() == ""));
-                    context.insert("foldername", &path.file_name().unwrap().to_str().unwrap());
+                    context.insert("foldername", foldername);
 
-                    log::info!("reqpath: {:?}", reqpath);
-                    log::info!("path: {:?}", path);
-                    log::info!("parent: {:?}", parent);
-                    log::info!("foldername: {:?}", path.file_name().unwrap());
+                    log::debug!("reqpath: {:?}", reqpath);
+                    log::debug!("path: {:?}", path);
+                    log::debug!("parent: {:?}", parent);
+                    log::debug!("foldername: {:?}", foldername);
 
                     let html = tera.render("list.html", &context).unwrap();
                     Ok(warp::reply::html(html))
@@ -92,7 +109,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let files = warp::get()
         .and(warp::any())
-        .and(warp::fs::dir("/home/parthpant/"));
+        .and(warp::fs::dir(root_dir));
 
     let routes = folders
         .or(files)
@@ -100,7 +117,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
         .with(warp::log("requests"));
 
     warp::serve(routes)
-        .run(([0, 0, 0, 0], 3000))
+        .run(([0, 0, 0, 0], config.port))
         .await;
 
     Ok(())
