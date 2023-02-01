@@ -17,7 +17,9 @@ impl From<ArcPath> for PathBuf {
     }
 }
 
-pub fn with_clone<T: Clone + Send>(t: &T) -> impl Clone + Filter<Extract = (T, ), Error = std::convert::Infallible> {
+pub fn with_clone<T: Clone + Send>(
+    t: &T,
+) -> impl Clone + Filter<Extract = (T,), Error = std::convert::Infallible> {
     let t = t.clone();
     warp::any().map(move || t.clone())
 }
@@ -36,4 +38,3 @@ pub fn decode_url(s: &str) -> String {
     }
     res
 }
-
