@@ -5,7 +5,7 @@ use clap::Parser;
 #[command(author, version, about, long_about = None)]
 pub struct Args {
     /// Path of the directory to be served
-    #[arg(short, long, default_value_t = String::from("/home"))]
+    #[arg(short, long, default_value_t = dirs::home_dir().unwrap().as_path().display().to_string())]
     pub dir: String,
 
     /// HTTP Port
